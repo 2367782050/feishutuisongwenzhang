@@ -1,6 +1,6 @@
+import base64
 import hashlib
 import hmac
-import json
 import time
 import requests
 from datetime import datetime, timezone, timedelta
@@ -9,10 +9,10 @@ CST = timezone(timedelta(hours=8))
 
 
 def _gen_sign(timestamp: int, secret: str) -> str:
-    """生成飞书 webhook 签名"""
+    """生成飞书 webhook 签名（HMAC-SHA256 + Base64）"""
     string_to_sign = f"{timestamp}\n{secret}"
     h = hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256)
-    return h.hexdigest()
+    return base64.b64encode(h.digest()).decode("utf-8")
 
 
 def build_card(articles: list[dict], session: str) -> dict:
