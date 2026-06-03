@@ -33,9 +33,13 @@ def build_card(articles: list[dict], session: str) -> dict:
         title_text = art["title"]
         if len(title_text) > 50:
             title_text = title_text[:50] + "..."
+        # 取第一个非 block/低质/优质 的分类标签
+        tags = art.get("quality_tags", [])
+        category = next((t for t in tags if t not in ("blocked", "低质信号", "优质信号")), "")
+        cat_str = f" · {category}" if category else ""
         lines.append(
             f"**{i}. [{title_text}]({art['url']})**\n"
-            f"{art['source']} · 热度 {art['heat_display']}\n"
+            f"{art['source']}{cat_str} · 热度 {art['heat_display']}\n"
         )
 
     body = "\n".join(lines)
