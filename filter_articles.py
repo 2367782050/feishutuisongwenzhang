@@ -51,13 +51,16 @@ def _cross_day_dedup(articles: list[dict], recent_titles: list[str]) -> list[dic
 
 
 def filter_and_pick(articles: list[dict], _unused: list[dict],
-                    recent_titles: list[str] | None = None) -> tuple[list[dict], list[dict]]:
+                    recent_titles: list[str] | None = None,
+                    account_frequency: dict[str, int] | None = None) -> tuple[list[dict], list[dict]]:
     """
-    筛选流程：质量过滤 → AI分类 → 去重 → 赛道精选 + 热门兜底
+    筛选流程：质量过滤 → AI分类 → 去重 → 新颖度评分 → 赛道精选 + 热门兜底
     返回 (精选列表, 全量归档列表)
     """
     if recent_titles is None:
         recent_titles = []
+    if account_frequency is None:
+        account_frequency = {}
 
     # 1. 质量评估 + 硬过滤
     for art in articles:
@@ -74,11 +77,32 @@ def filter_and_pick(articles: list[dict], _unused: list[dict],
     candidates = _deduplicate(candidates)
     candidates = _cross_day_dedup(candidates, recent_titles)
 
-    # 4. 评分
+    # 4. 新颖度评分：低频账号 = 可能的低粉爆文
     for art in candidates:
-        art["score"] = round(art.get("quality_score", 0) + art["heat_score"] / 10000, 4)
+        biz = art.get("account_id", "")
+        freq = account_frequency.get(biz, 0) if biz else -1
+        art["account_freq"] = freq
 
-    # 5. 按赛道分组
+        if freq == 0:
+            art["novelty"] = "🆕 新面孔"
+            art["novelty_score"] = 2.0
+        elif freq <= 2:
+            art["novelty"] = "🌟 偶尔出现"
+            art["novelty_score"] = 1.0
+        else:
+            art["novelty"] = ""
+            art["novelty_score"] = 0
+
+    # 5. 综合评分
+    for art in candidates:
+        art["score"] = round(
+            art.get("quality_score", 0)
+            + art["heat_score"] / 10000
+            + art["novelty_score"],
+            4,
+        )
+
+    # 6. 按赛道分组
     categories = {}
     for art in candidates:
         cat = _get_category(art)
@@ -87,13 +111,13 @@ def filter_and_pick(articles: list[dict], _unused: list[dict],
     for cat in categories:
         categories[cat].sort(key=lambda a: a["score"], reverse=True)
 
-    # 6. 赛道精选（最多 5 篇/赛道）
+    # 7. 赛道精选（最多 5 篇/赛道）
     picked = []
     for cat in TARGET_CATEGORIES:
         pool = categories.get(cat, [])
         picked.extend(pool[:MAX_PER_CATEGORY])
 
-    # 7. 热门兜底："其他"分类中热度 > 阈值的前 5 名也推
+    # 8. 热门兜底："其他"分类中热度 > 阈值的前 5 名也推
     other_pool = categories.get("其他", [])
     hot_others = [a for a in other_pool if a["heat_score"] >= HOT_RESCUE_THRESHOLD]
     hot_others.sort(key=lambda a: a["heat_score"], reverse=True)
