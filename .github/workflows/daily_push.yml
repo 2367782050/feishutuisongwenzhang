@@ -1,0 +1,70 @@
+name: 每日爆款文章推送
+
+on:
+  schedule:
+    # 北京时间 09:00 → UTC 01:00
+    - cron: '0 1 * * *'
+    # 北京时间 18:00 → UTC 10:00
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      session:
+        description: '推送时段'
+        required: true
+        type: choice
+        default: 'both'
+        options:
+          - morning
+          - evening
+          - both
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine session
+        id: session
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "schedule_value=${{ github.event.schedule }}" >> $GITHUB_OUTPUT
+          else
+            echo "schedule_value=none" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Morning push (09:00 CST)
+        if: |
+          (github.event_name == 'schedule' && github.event.schedule == '0 1 * * *') ||
+          (github.event_name == 'workflow_dispatch' && (github.event.inputs.session == 'morning' || github.event.inputs.session == 'both'))
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_BITABLE_APP_TOKEN: ${{ secrets.FEISHU_BITABLE_APP_TOKEN }}
+          PUSH_SESSION: morning
+        run: python main.py
+
+      - name: Evening push (18:00 CST)
+        if: |
+          (github.event_name == 'schedule' && github.event.schedule == '0 10 * * *') ||
+          (github.event_name == 'workflow_dispatch' && (github.event.inputs.session == 'evening' || github.event.inputs.session == 'both'))
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_BITABLE_APP_TOKEN: ${{ secrets.FEISHU_BITABLE_APP_TOKEN }}
+          PUSH_SESSION: evening
+        run: python main.py
