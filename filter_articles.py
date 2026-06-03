@@ -7,6 +7,7 @@ from config import (
     PICK_COUNT,
     DEDUP_THRESHOLD,
 )
+from quality_filter import score_quality
 
 
 def _title_similarity(a: str, b: str) -> float:
@@ -29,14 +30,14 @@ def _deduplicate(articles: list[dict]) -> list[dict]:
 
 
 def _normalize_and_score(articles: list[dict]) -> list[dict]:
-    """按来源独立归一化热度后再综合评分"""
+    """综合评分：热度(40%) + 排名因子(20%) + 质量评分(40%)"""
     span = RANK_RANGE_END - RANK_RANGE_START or 1
 
     for art in articles:
         rank_factor = 1 - (art["rank"] - RANK_RANGE_START) / span
         art["_rank_factor"] = max(0, rank_factor)
 
-    # 按来源分组，各自归一化
+    # 按来源独立归一化热度
     sources = {}
     for art in articles:
         sources.setdefault(art["source"], []).append(art)
@@ -46,21 +47,29 @@ def _normalize_and_score(articles: list[dict]) -> list[dict]:
         for art in arts:
             art["_normalized_heat"] = art["heat_score"] / max_heat
 
+    # 质量评分归一化（-3 到 +6 范围映射到 0-1）
+    for art in articles:
+        raw_q = art.get("quality_score", 0)
+        art["_normalized_quality"] = max(0, min(1, (raw_q + 3) / 9))
+
     # 综合评分
     for art in articles:
         art["score"] = round(
-            art["_normalized_heat"] * 0.6 + art["_rank_factor"] * 0.4, 4
+            art["_normalized_heat"] * 0.4
+            + art["_rank_factor"] * 0.2
+            + art["_normalized_quality"] * 0.4,
+            4,
         )
-        # 清理临时字段
         del art["_normalized_heat"]
         del art["_rank_factor"]
+        del art["_normalized_quality"]
 
     return articles
 
 
 def filter_and_pick(tophub_articles: list[dict], toutiao_articles: list[dict]) -> tuple[list[dict], list[dict]]:
     """
-    筛选并精选文章。按来源独立归一化热度，避免头条百万级热度碾压微信万级热度。
+    筛选并精选文章。三步：硬过滤 → 综合评分 → 精选
     返回 (精选列表, 全量归档列表)
     """
     def _filter(art):
@@ -70,8 +79,20 @@ def filter_and_pick(tophub_articles: list[dict], toutiao_articles: list[dict]) -
             and RANK_RANGE_START <= art["rank"] <= RANK_RANGE_END
         )
 
+    # 热度 + 排名区间过滤
     tophub_filtered = [a for a in tophub_articles if _filter(a)]
     toutiao_filtered = [a for a in toutiao_articles if _filter(a)]
+
+    # 质量评估 + 硬过滤
+    for art in tophub_filtered + toutiao_filtered:
+        q = score_quality(art["title"])
+        art["quality_score"] = q["score"]
+        art["quality_tags"] = q["tags"]
+        art["blocked"] = q["blocked"]
+
+    # 移除被硬过滤的文章
+    tophub_filtered = [a for a in tophub_filtered if not a["blocked"]]
+    toutiao_filtered = [a for a in toutiao_filtered if not a["blocked"]]
 
     all_candidates = _deduplicate(tophub_filtered + toutiao_filtered)
 
