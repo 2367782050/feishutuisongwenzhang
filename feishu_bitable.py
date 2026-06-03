@@ -3,12 +3,24 @@ import requests
 from datetime import datetime, timezone, timedelta
 
 CST = timezone(timedelta(hours=8))
-
 BASE_URL = "https://open.feishu.cn/open-apis"
+
+# 字段定义：(名称, 类型, [选项列表])
+FIELD_DEFS = [
+    ("标题", 1, None),          # 多行文本
+    ("来源", 3, ["公众号", "头条"]),       # 单选
+    ("排名", 2, None),          # 数字
+    ("热度值", 2, None),        # 数字
+    ("热度展示", 1, None),      # 文本
+    ("原文链接", 15, None),     # 超链接
+    ("推送日期", 5, None),      # 日期
+    ("早晚班次", 3, ["早间", "晚间"]),     # 单选
+    ("是否精选", 7, None),      # 复选框
+    ("精选评分", 2, None),      # 数字
+]
 
 
 def _get_token(app_id: str, app_secret: str) -> str:
-    """获取 tenant_access_token，自动缓存 1.5 小时"""
     resp = requests.post(
         f"{BASE_URL}/auth/v3/tenant_access_token/internal",
         json={"app_id": app_id, "app_secret": app_secret},
@@ -20,18 +32,56 @@ def _get_token(app_id: str, app_secret: str) -> str:
     return data["tenant_access_token"]
 
 
-def _table_exists(token: str, app_token: str, table_id: str) -> bool:
-    """检查子表是否存在"""
+def _ensure_fields(token: str, app_token: str, table_id: str):
+    """确保表格字段存在，不存在则创建"""
+    # 检查已有字段
     resp = requests.get(
         f"{BASE_URL}/bitable/v1/apps/{app_token}/tables/{table_id}/fields",
         headers={"Authorization": f"Bearer {token}"},
         timeout=15,
     )
-    return resp.json().get("code") == 0
+    existing_names = set()
+    if resp.status_code == 200:
+        data = resp.json()
+        if data.get("code") == 0:
+            for item in data.get("data", {}).get("items", []):
+                existing_names.add(item.get("field_name", ""))
+
+    # 创建缺失字段
+    for field_name, field_type, options in FIELD_DEFS:
+        if field_name in existing_names:
+            continue
+        body = {"field_name": field_name, "type": field_type}
+        if options:
+            body["property"] = {"options": [{"name": o} for o in options]}
+
+        r = requests.post(
+            f"{BASE_URL}/bitable/v1/apps/{app_token}/tables/{table_id}/fields",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=15,
+        )
+
+        # 忽略"字段已存在"错误
+        if r.json().get("code") not in (0, 1254005):
+            time.sleep(0.3)
 
 
-def _create_table(token: str, app_token: str, table_name: str) -> str:
-    """创建子表，返回 table_id"""
+def _get_or_create_table(token: str, app_token: str, table_name: str) -> str:
+    """获取或创建日期子表，返回 table_id"""
+    # 尝试用 table_name 作为 table_id 访问（新表名即 ID）
+    resp = requests.get(
+        f"{BASE_URL}/bitable/v1/apps/{app_token}/tables/{table_name}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=15,
+    )
+    if resp.status_code == 200 and resp.json().get("code") == 0:
+        return table_name
+
+    # 不存在则创建
     resp = requests.post(
         f"{BASE_URL}/bitable/v1/apps/{app_token}/tables",
         headers={
@@ -47,17 +97,8 @@ def _create_table(token: str, app_token: str, table_name: str) -> str:
     return data["data"]["table_id"]
 
 
-def _get_or_create_table(token: str, app_token: str, table_name: str) -> str:
-    """获取或创建日期子表，返回 table_id"""
-    if _table_exists(token, app_token, table_name):
-        return table_name
-    return _create_table(token, app_token, table_name)
-
-
 def _build_fields(art: dict) -> dict:
-    """将文章 dict 转为 Bitable 字段格式"""
     now = datetime.now(CST)
-
     return {
         "标题": art.get("title", ""),
         "来源": art.get("source", "公众号"),
@@ -76,13 +117,13 @@ def _build_fields(art: dict) -> dict:
 
 
 def archive_to_bitable(app_id: str, app_secret: str, app_token: str, articles: list[dict], session: str):
-    """将全量文章归档到飞书多维表格"""
     if not articles:
         return
 
     token = _get_token(app_id, app_secret)
     today = datetime.now(CST).strftime("%Y-%m-%d")
     table_id = _get_or_create_table(token, app_token, today)
+    _ensure_fields(token, app_token, table_id)
 
     for art in articles:
         art["session"] = "早间" if session == "morning" else "晚间"
