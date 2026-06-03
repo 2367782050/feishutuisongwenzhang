@@ -10,6 +10,7 @@ from fetcher_tophub import fetch_tophub_weixin
 from filter_articles import filter_and_pick
 from feishu_sender import send_card, send_error_notification
 from feishu_bitable import archive_to_bitable, get_recent_titles, get_account_frequency
+from classifier import analyze_viral_reasons
 from fetcher_summary import batch_generate_teasers
 
 REQUIRED_ENV = {
@@ -75,9 +76,10 @@ def main():
     print(f"  精选: {len(picked)} 条 ({_cat_summary(picked)})")
     print(f"  全量归档: {len(all_articles)} 条")
 
-    # 生成亮点标签
+    # 生成亮点标签 + 爆文分析
     batch_generate_teasers(picked)
     batch_generate_teasers(all_articles)
+    analyze_viral_reasons(picked)
 
     # 推送卡片
     if picked:
