@@ -1,5 +1,7 @@
+import re
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import parse_qs, urlparse
 
 HEADERS = {
     "User-Agent": (
@@ -8,6 +10,15 @@ HEADERS = {
         "Chrome/125.0.0.0 Safari/537.36"
     )
 }
+
+
+def _extract_biz(url: str) -> str:
+    """从微信公众号文章链接中提取 __biz（公众号唯一标识）"""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return qs.get("__biz", [""])[0]
+    except Exception:
+        return ""
 
 # 节点配置: (node_id, source_name, layout)
 # layout: "standard" = td[1]标题 + td[2]热度, "no_heat" = td[2]标题 无热度列
@@ -82,6 +93,7 @@ def fetch_tophub_node(node_id: str, source_name: str, layout: str = "standard") 
             "heat_score": heat_score,
             "heat_display": heat_display,
             "source": source_name,
+            "account_id": _extract_biz(url),
         })
 
     return articles
