@@ -7,16 +7,18 @@ BASE_URL = "https://open.feishu.cn/open-apis"
 
 # 字段定义：(名称, 类型, [选项列表])
 FIELD_DEFS = [
-    ("标题", 1, None),          # 多行文本
-    ("来源", 3, ["公众号", "头条"]),       # 单选
-    ("排名", 2, None),          # 数字
-    ("热度值", 2, None),        # 数字
-    ("热度展示", 1, None),      # 文本
-    ("原文链接", 15, None),     # 超链接
-    ("推送日期", 5, None),      # 日期
-    ("早晚班次", 3, ["早间", "晚间"]),     # 单选
-    ("是否精选", 7, None),      # 复选框
-    ("精选评分", 2, None),      # 数字
+    ("标题", 1, None),
+    ("来源", 3, ["公众号", "头条"]),
+    ("排名", 2, None),
+    ("热度值", 2, None),
+    ("热度展示", 1, None),
+    ("分类", 3, ["商业财经", "科技数码", "职场成长", "社会民生", "情感生活", "娱乐八卦", "其他"]),
+    ("质量评分", 2, None),
+    ("原文链接", 15, None),
+    ("推送日期", 5, None),
+    ("早晚班次", 3, ["早间", "晚间"]),
+    ("是否精选", 7, None),
+    ("精选评分", 2, None),
 ]
 
 
@@ -101,12 +103,17 @@ def _get_or_create_table(token: str, app_token: str, table_name: str) -> str:
 
 def _build_fields(art: dict) -> dict:
     now = datetime.now(CST)
+    tags = art.get("quality_tags", [])
+    category = next((t for t in tags if t not in ("blocked", "低质信号", "优质信号")), "其他")
+
     return {
         "标题": art.get("title", ""),
         "来源": art.get("source", "公众号"),
         "排名": art.get("rank", 0),
         "热度值": art.get("heat_score", 0),
         "热度展示": art.get("heat_display", ""),
+        "分类": category,
+        "质量评分": art.get("quality_score", 0),
         "原文链接": {
             "link": art.get("url", ""),
             "text": "查看原文",
