@@ -15,6 +15,7 @@ FIELD_DEFS = [
     ("分类", 3, ["科技·AI", "情感", "健康养生", "个人成长", "历史", "体制", "家居", "其他"]),
     ("质量评分", 2, None),
     ("亮点标签", 1, None),
+    ("爆文分析", 1, None),
     ("账号ID", 1, None),
     ("原文链接", 15, None),
     ("推送日期", 5, None),
@@ -117,6 +118,7 @@ def _build_fields(art: dict) -> dict:
         "分类": category,
         "质量评分": art.get("quality_score", 0),
         "亮点标签": art.get("summary", ""),
+        "爆文分析": art.get("viral_reason", ""),
         "账号ID": art.get("account_id", ""),
         "原文链接": {
             "link": art.get("url", ""),
