@@ -5,10 +5,8 @@ from config import (
     FEISHU_APP_ID,
     FEISHU_APP_SECRET,
     FEISHU_BITABLE_APP_TOKEN,
-    PUSH_SESSION,
 )
-from fetcher_tophub import fetch_tophub_weixin, fetch_zhihu, fetch_36kr, fetch_weibo
-from fetcher_toutiao import fetch_toutiao
+from fetcher_tophub import fetch_tophub_weixin
 from filter_articles import filter_and_pick
 from feishu_sender import send_card, send_error_notification
 from feishu_bitable import archive_to_bitable
@@ -32,76 +30,70 @@ def _validate_env():
 
 def main():
     _validate_env()
-    print(f"[{PUSH_SESSION}] 开始拉取数据...")
+    print("开始拉取公众号热文...")
 
-    tophub_articles = []
-    toutiao_articles = []
-    all_raw = []
-
-    # 拉取各平台
-    fetchers = [
-        ("公众号", fetch_tophub_weixin),
-        ("头条", fetch_toutiao),
-        ("知乎", fetch_zhihu),
-        ("36氪", fetch_36kr),
-        ("微博", fetch_weibo),
-    ]
-
-    for name, fetcher in fetchers:
+    # 拉取公众号
+    try:
+        articles = fetch_tophub_weixin()
+        print(f"  公众号: {len(articles)} 条")
+    except Exception as e:
+        print(f"  ❌ 拉取失败: {e}")
         try:
-            articles = fetcher()
-            all_raw.extend(articles)
-            if name == "头条":
-                toutiao_articles = articles
-            else:
-                tophub_articles.extend(articles)
-            print(f"  {name}: {len(articles)} 条")
-        except Exception as e:
-            print(f"  {name} 拉取失败: {e}")
-
-    # 所有源都失败 → 发异常通知
-    if not all_raw:
-        msg = "所有数据源均无法访问"
-        print(f"  ❌ {msg}")
-        try:
-            send_error_notification(FEISHU_WEBHOOK_URL, FEISHU_WEBHOOK_SECRET, msg)
+            send_error_notification(FEISHU_WEBHOOK_URL, FEISHU_WEBHOOK_SECRET, str(e))
         except Exception:
             pass
         sys.exit(1)
 
-    # 筛选精选 + 全量
-    picked, all_articles = filter_and_pick(tophub_articles, toutiao_articles)
-    print(f"  精选: {len(picked)} 条, 全量归档: {len(all_articles)} 条")
+    if not articles:
+        msg = "公众号数据源无数据"
+        print(f"  ❌ {msg}")
+        send_error_notification(FEISHU_WEBHOOK_URL, FEISHU_WEBHOOK_SECRET, msg)
+        sys.exit(1)
+
+    # 赛道筛选
+    picked, all_articles = filter_and_pick(articles, [])
+    print(f"  精选: {len(picked)} 条 ({_cat_summary(picked)})")
+    print(f"  全量归档: {len(all_articles)} 条")
 
     # 生成亮点标签
     batch_generate_teasers(picked)
     batch_generate_teasers(all_articles)
 
-    # 通道 1：推送卡片到飞书群
+    # 推送卡片
     if picked:
         try:
-            send_card(FEISHU_WEBHOOK_URL, FEISHU_WEBHOOK_SECRET, picked, PUSH_SESSION)
+            send_card(FEISHU_WEBHOOK_URL, FEISHU_WEBHOOK_SECRET, picked, "morning")
             print("  ✅ 飞书卡片已发送")
         except Exception as e:
             print(f"  ❌ 飞书卡片发送失败: {e}")
     else:
-        print("  ⚠️ 无文章可推送（筛选后为空）")
+        print("  ⚠️ 无文章可推送")
 
-    # 通道 2：归档到多维表格
+    # 归档多维表格
     if all_articles:
         try:
             archive_to_bitable(
-                FEISHU_APP_ID,
-                FEISHU_APP_SECRET,
-                FEISHU_BITABLE_APP_TOKEN,
-                all_articles,
-                PUSH_SESSION,
+                FEISHU_APP_ID, FEISHU_APP_SECRET,
+                FEISHU_BITABLE_APP_TOKEN, all_articles, "morning",
             )
             print("  ✅ 多维表格已归档")
         except Exception as e:
             print(f"  ❌ 多维表格归档失败: {e}")
 
-    print(f"[{PUSH_SESSION}] 完成")
+    print("完成")
+
+
+def _cat_summary(articles: list[dict]) -> str:
+    """统计各赛道数量"""
+    from collections import Counter
+    cats = Counter()
+    for a in articles:
+        tags = a.get("quality_tags", [])
+        for t in tags:
+            if t not in ("blocked", "低质信号", "优质信号", "其他"):
+                cats[t] += 1
+                break
+    return " | ".join(f"{c}×{n}" for c, n in cats.most_common())
 
 
 if __name__ == "__main__":
