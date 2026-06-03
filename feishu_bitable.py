@@ -1,69 +1,64 @@
+import time
+import requests
 from datetime import datetime, timezone, timedelta
-import lark_oapi as lark
-from lark_oapi.api.bitable.v1 import (
-    CreateAppTableRequest, CreateAppTableRequestBody, CreateAppTableTable,
-    ListAppTableFieldRequest, ListAppTableFieldResponse,
-    BatchCreateAppTableRecordRequest, BatchCreateAppTableRecordRequestBody,
-    AppTableRecord,
-)
 
 CST = timezone(timedelta(hours=8))
 
-FIELDS = [
-    ("标题", 1),       # 多行文本
-    ("来源", 3),        # 单选
-    ("排名", 2),        # 数字
-    ("热度值", 2),      # 数字
-    ("热度展示", 1),    # 文本
-    ("原文链接", 15),   # 超链接
-    ("推送日期", 5),    # 日期
-    ("早晚班次", 3),    # 单选
-    ("是否精选", 7),    # 复选框
-    ("精选评分", 2),    # 数字
-]
+BASE_URL = "https://open.feishu.cn/open-apis"
 
 
-def _get_client(app_id: str, app_secret: str) -> lark.Client:
-    return (
-        lark.Client.builder()
-        .app_id(app_id)
-        .app_secret(app_secret)
-        .log_level(lark.LogLevel.INFO)
-        .build()
+def _get_token(app_id: str, app_secret: str) -> str:
+    """获取 tenant_access_token，自动缓存 1.5 小时"""
+    resp = requests.post(
+        f"{BASE_URL}/auth/v3/tenant_access_token/internal",
+        json={"app_id": app_id, "app_secret": app_secret},
+        timeout=15,
     )
+    data = resp.json()
+    if data.get("code") != 0:
+        raise RuntimeError(f"获取 token 失败: {data}")
+    return data["tenant_access_token"]
 
 
-def _get_or_create_table(client: lark.Client, app_token: str, table_name: str) -> str:
-    """获取已存在的日期子表，不存在则创建，返回 table_id"""
-    # 先查已有表
-    req = ListAppTableFieldRequest.builder().app_token(app_token).table_id(table_name).build()
-    resp = client.bitable.v1.app_table_field.list(req)
-    if resp.success():
+def _table_exists(token: str, app_token: str, table_id: str) -> bool:
+    """检查子表是否存在"""
+    resp = requests.get(
+        f"{BASE_URL}/bitable/v1/apps/{app_token}/tables/{table_id}/fields",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=15,
+    )
+    return resp.json().get("code") == 0
+
+
+def _create_table(token: str, app_token: str, table_name: str) -> str:
+    """创建子表，返回 table_id"""
+    resp = requests.post(
+        f"{BASE_URL}/bitable/v1/apps/{app_token}/tables",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={"table": {"name": table_name}},
+        timeout=15,
+    )
+    data = resp.json()
+    if data.get("code") != 0:
+        raise RuntimeError(f"创建子表失败: {data}")
+    return data["data"]["table_id"]
+
+
+def _get_or_create_table(token: str, app_token: str, table_name: str) -> str:
+    """获取或创建日期子表，返回 table_id"""
+    if _table_exists(token, app_token, table_name):
         return table_name
-
-    # 不存在则创建
-    req = (
-        CreateAppTableRequest.builder()
-        .app_token(app_token)
-        .request_body(
-            CreateAppTableRequestBody.builder()
-            .table(CreateAppTableTable.builder().name(table_name).build())
-            .build()
-        )
-        .build()
-    )
-    resp = client.bitable.v1.app_table.create(req)
-    if not resp.success():
-        raise RuntimeError(f"创建子表失败: {resp.msg} ({resp.code})")
-
-    return resp.data.table_id
+    return _create_table(token, app_token, table_name)
 
 
-def _article_to_record(art: dict) -> AppTableRecord:
-    """将文章 dict 转为 Bitable 记录"""
+def _build_fields(art: dict) -> dict:
+    """将文章 dict 转为 Bitable 字段格式"""
     now = datetime.now(CST)
 
-    fields = {
+    return {
         "标题": art.get("title", ""),
         "来源": art.get("source", "公众号"),
         "排名": art.get("rank", 0),
@@ -79,38 +74,36 @@ def _article_to_record(art: dict) -> AppTableRecord:
         "精选评分": art.get("score", 0),
     }
 
-    return AppTableRecord.builder().fields(fields).build()
-
 
 def archive_to_bitable(app_id: str, app_secret: str, app_token: str, articles: list[dict], session: str):
     """将全量文章归档到飞书多维表格"""
     if not articles:
         return
 
-    client = _get_client(app_id, app_secret)
+    token = _get_token(app_id, app_secret)
     today = datetime.now(CST).strftime("%Y-%m-%d")
-    table_id = _get_or_create_table(client, app_token, today)
+    table_id = _get_or_create_table(token, app_token, today)
 
     for art in articles:
         art["session"] = "早间" if session == "morning" else "晚间"
 
-    # 批量写入（单次最多 500 条）
-    records = [_article_to_record(art) for art in articles]
+    records = [{"fields": _build_fields(art)} for art in articles]
     batch_size = 500
 
     for i in range(0, len(records), batch_size):
         batch = records[i : i + batch_size]
-        req = (
-            BatchCreateAppTableRecordRequest.builder()
-            .app_token(app_token)
-            .table_id(table_id)
-            .request_body(
-                BatchCreateAppTableRecordRequestBody.builder()
-                .records(batch)
-                .build()
-            )
-            .build()
+        resp = requests.post(
+            f"{BASE_URL}/bitable/v1/apps/{app_token}/tables/{table_id}/records/batch_create",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={"records": batch},
+            timeout=30,
         )
-        resp = client.bitable.v1.app_table_record.batch_create(req)
-        if not resp.success():
-            raise RuntimeError(f"Bitable 写入失败: {resp.msg} ({resp.code})")
+        data = resp.json()
+        if data.get("code") != 0:
+            raise RuntimeError(f"Bitable 写入失败: {data}")
+
+        if i + batch_size < len(records):
+            time.sleep(0.5)
