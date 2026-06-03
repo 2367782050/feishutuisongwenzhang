@@ -14,6 +14,7 @@ FIELD_DEFS = [
     ("热度展示", 1, None),
     ("分类", 3, ["商业财经", "科技数码", "职场成长", "社会民生", "情感生活", "娱乐八卦", "其他"]),
     ("质量评分", 2, None),
+    ("亮点标签", 1, None),
     ("原文链接", 15, None),
     ("推送日期", 5, None),
     ("早晚班次", 3, ["早间", "晚间"]),
@@ -114,6 +115,7 @@ def _build_fields(art: dict) -> dict:
         "热度展示": art.get("heat_display", ""),
         "分类": category,
         "质量评分": art.get("quality_score", 0),
+        "亮点标签": art.get("summary", ""),
         "原文链接": {
             "link": art.get("url", ""),
             "text": "查看原文",
