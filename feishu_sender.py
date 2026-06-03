@@ -74,15 +74,12 @@ def send_card(webhook_url: str, secret: str, articles: list[dict], session: str)
     """发送卡片消息到飞书群"""
     card = build_card(articles, session)
 
-    timestamp = int(time.time())
-    sign = _gen_sign(timestamp, secret) if secret else ""
+    payload = {"msg_type": "interactive", "card": card["card"]}
 
-    payload = {
-        "timestamp": str(timestamp),
-        "sign": sign,
-        "msg_type": "interactive",
-        "card": card["card"],
-    }
+    if secret:
+        timestamp = str(int(time.time()))
+        payload["timestamp"] = timestamp
+        payload["sign"] = _gen_sign(int(timestamp), secret)
 
     resp = requests.post(webhook_url, json=payload, timeout=15)
     data = resp.json()
