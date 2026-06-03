@@ -103,3 +103,52 @@ def classify_articles(articles: list[dict]) -> list[dict]:
         art["ai_classified"] = False
 
     return articles
+
+
+def analyze_viral_reasons(articles: list[dict]) -> list[dict]:
+    """用 DeepSeek 分析每篇文章为什么能爆（一句话）"""
+    if not DEEPSEEK_API_KEY or not articles:
+        return articles
+
+    titles_text = "\n".join(
+        f"t{i}: {a['title']}" for i, a in enumerate(articles)
+    )
+
+    prompt = (
+        "下面是一些公众号爆款文章标题。请分析每篇为什么会成为爆文。\n"
+        "从这几个角度：情绪共鸣、信息差、好奇心缺口、身份认同、争议性、实用性。\n"
+        "每篇用一句话（≤25字）回答，返回纯 JSON 对象，key 是序号，value 是分析。\n\n"
+        + titles_text
+    )
+
+    try:
+        resp = requests.post(
+            DEEPSEEK_API_URL,
+            headers={
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 500,
+            },
+            timeout=30,
+        )
+
+        content = resp.json()["choices"][0]["message"]["content"]
+        try:
+            result_map = json.loads(content)
+        except json.JSONDecodeError:
+            match = re.search(r"\{[^}]+\}", content)
+            result_map = json.loads(match.group()) if match else {}
+
+        for i, art in enumerate(articles):
+            art["viral_reason"] = result_map.get(f"t{i}", "")
+
+    except Exception:
+        for art in articles:
+            art["viral_reason"] = ""
+
+    return articles
