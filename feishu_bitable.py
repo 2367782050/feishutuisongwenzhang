@@ -159,3 +159,51 @@ def archive_to_bitable(app_id: str, app_secret: str, app_token: str, articles: l
 
         if i + batch_size < len(records):
             time.sleep(0.5)
+
+
+def get_recent_titles(app_id: str, app_secret: str, app_token: str, days: int = 7) -> list[str]:
+    """从多维表格获取最近 N 天的文章标题（用于跨天去重）"""
+    try:
+        token = _get_token(app_id, app_secret)
+
+        # 列出所有表
+        resp = requests.get(
+            f"{BASE_URL}/bitable/v1/apps/{app_token}/tables",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        if resp.json().get("code") != 0:
+            return []
+
+        tables = resp.json().get("data", {}).get("items", [])
+
+        # 筛选最近 N 天的表（表名格式: 2026-06-03）
+        from datetime import timedelta
+        today = datetime.now(CST).date()
+        recent_dates = {(today - timedelta(days=d)).strftime("%Y-%m-%d") for d in range(1, days + 1)}
+
+        titles = []
+        for tbl in tables:
+            tbl_name = tbl.get("name", "")
+            if tbl_name not in recent_dates:
+                continue
+
+            tbl_id = tbl["table_id"]
+            resp = requests.get(
+                f"{BASE_URL}/bitable/v1/apps/{app_token}/tables/{tbl_id}/records",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"page_size": 100},
+                timeout=15,
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                continue
+
+            for item in data.get("data", {}).get("items", []):
+                title = item.get("fields", {}).get("标题", "")
+                if title:
+                    titles.append(title)
+
+        return titles
+    except Exception:
+        return []
