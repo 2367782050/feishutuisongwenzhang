@@ -72,14 +72,16 @@ def _ensure_fields(token: str, app_token: str, table_id: str):
 
 def _get_or_create_table(token: str, app_token: str, table_name: str) -> str:
     """获取或创建日期子表，返回 table_id"""
-    # 尝试用 table_name 作为 table_id 访问（新表名即 ID）
+    # 列出所有表，按名称匹配
     resp = requests.get(
-        f"{BASE_URL}/bitable/v1/apps/{app_token}/tables/{table_name}",
+        f"{BASE_URL}/bitable/v1/apps/{app_token}/tables",
         headers={"Authorization": f"Bearer {token}"},
         timeout=15,
     )
     if resp.status_code == 200 and resp.json().get("code") == 0:
-        return table_name
+        for item in resp.json().get("data", {}).get("items", []):
+            if item.get("name") == table_name:
+                return item["table_id"]
 
     # 不存在则创建
     resp = requests.post(
