@@ -1,11 +1,11 @@
-"""文章分类器：优先使用 Groq LLM，不可用时降级为关键词匹配"""
+"""文章分类器：优先使用 DeepSeek LLM，不可用时降级为关键词匹配"""
 import json
 import os
 import re
 import requests
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
 CATEGORIES = ["科技·AI", "情感", "健康养生", "个人成长", "历史", "体制", "家居"]
 
@@ -38,8 +38,7 @@ def _classify_by_keyword(title: str) -> str:
 
 
 def _classify_batch_by_llm(titles: list[str]) -> list[str]:
-    """用 Groq LLM 批量分类（一次 API 调用处理所有标题）"""
-    titles_map = {f"t{i}": t for i, t in enumerate(titles)}
+    """用 DeepSeek 批量分类（一次 API 调用处理所有标题）"""
     cat_list = "、".join(CATEGORIES)
 
     prompt = (
@@ -49,13 +48,13 @@ def _classify_batch_by_llm(titles: list[str]) -> list[str]:
     )
 
     resp = requests.post(
-        GROQ_API_URL,
+        DEEPSEEK_API_URL,
         headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
             "Content-Type": "application/json",
         },
         json={
-            "model": "llama-3.1-8b-instant",
+            "model": "deepseek-chat",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0,
             "max_tokens": 500,
@@ -70,7 +69,6 @@ def _classify_batch_by_llm(titles: list[str]) -> list[str]:
     try:
         result_map = json.loads(content)
     except json.JSONDecodeError:
-        # 尝试从文本中提取 JSON
         match = re.search(r"\{[^}]+\}", content)
         if match:
             result_map = json.loads(match.group())
@@ -87,8 +85,8 @@ def classify_articles(articles: list[dict]) -> list[dict]:
 
     titles = [a["title"] for a in articles]
 
-    # 尝试 LLM 分类
-    if GROQ_API_KEY:
+    # 尝试 DeepSeek 分类
+    if DEEPSEEK_API_KEY:
         try:
             categories = _classify_batch_by_llm(titles)
             for art, cat in zip(articles, categories):
@@ -96,7 +94,7 @@ def classify_articles(articles: list[dict]) -> list[dict]:
                 art["ai_classified"] = True
             return articles
         except Exception:
-            pass  # LLM 失败，降级为关键词
+            pass  # 失败，降级为关键词
 
     # 关键词 fallback
     for art in articles:
