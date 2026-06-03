@@ -15,6 +15,7 @@ FIELD_DEFS = [
     ("分类", 3, ["科技·AI", "情感", "健康养生", "个人成长", "历史", "体制", "家居", "其他"]),
     ("质量评分", 2, None),
     ("亮点标签", 1, None),
+    ("账号ID", 1, None),
     ("原文链接", 15, None),
     ("推送日期", 5, None),
     ("早晚班次", 3, ["早间", "晚间"]),
@@ -116,6 +117,7 @@ def _build_fields(art: dict) -> dict:
         "分类": category,
         "质量评分": art.get("quality_score", 0),
         "亮点标签": art.get("summary", ""),
+        "账号ID": art.get("account_id", ""),
         "原文链接": {
             "link": art.get("url", ""),
             "text": "查看原文",
@@ -207,3 +209,49 @@ def get_recent_titles(app_id: str, app_secret: str, app_token: str, days: int = 
         return titles
     except Exception:
         return []
+
+
+def get_account_frequency(app_id: str, app_secret: str, app_token: str, days: int = 14) -> dict[str, int]:
+    """获取过去 N 天各公众号在热榜中的出现次数。返回 {account_id: count}"""
+    try:
+        token = _get_token(app_id, app_secret)
+
+        resp = requests.get(
+            f"{BASE_URL}/bitable/v1/apps/{app_token}/tables",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        if resp.json().get("code") != 0:
+            return {}
+
+        tables = resp.json().get("data", {}).get("items", [])
+
+        from datetime import timedelta
+        today = datetime.now(CST).date()
+        recent_dates = {(today - timedelta(days=d)).strftime("%Y-%m-%d") for d in range(1, days + 1)}
+
+        freq = {}
+        for tbl in tables:
+            tbl_name = tbl.get("name", "")
+            if tbl_name not in recent_dates:
+                continue
+
+            tbl_id = tbl["table_id"]
+            resp = requests.get(
+                f"{BASE_URL}/bitable/v1/apps/{app_token}/tables/{tbl_id}/records",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"page_size": 100},
+                timeout=15,
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                continue
+
+            for item in data.get("data", {}).get("items", []):
+                biz = item.get("fields", {}).get("账号ID", "")
+                if biz:
+                    freq[biz] = freq.get(biz, 0) + 1
+
+        return freq
+    except Exception:
+        return {}
