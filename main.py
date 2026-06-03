@@ -9,7 +9,7 @@ from config import (
 from fetcher_tophub import fetch_tophub_weixin
 from filter_articles import filter_and_pick
 from feishu_sender import send_card, send_error_notification
-from feishu_bitable import archive_to_bitable, get_recent_titles
+from feishu_bitable import archive_to_bitable, get_recent_titles, get_account_frequency
 from fetcher_summary import batch_generate_teasers
 
 REQUIRED_ENV = {
@@ -60,8 +60,18 @@ def main():
     except Exception as e:
         print(f"  去重库查询失败（跳过）: {e}")
 
+    # 获取近 14 天账号频率（低粉爆文识别）
+    account_freq = {}
+    try:
+        account_freq = get_account_frequency(
+            FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_BITABLE_APP_TOKEN, days=14
+        )
+        print(f"  账号库: {len(account_freq)} 个历史账号")
+    except Exception as e:
+        print(f"  账号库查询失败（跳过）: {e}")
+
     # 赛道筛选
-    picked, all_articles = filter_and_pick(articles, [], recent_titles)
+    picked, all_articles = filter_and_pick(articles, [], recent_titles, account_freq)
     print(f"  精选: {len(picked)} 条 ({_cat_summary(picked)})")
     print(f"  全量归档: {len(all_articles)} 条")
 
