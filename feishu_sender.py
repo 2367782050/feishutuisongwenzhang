@@ -52,11 +52,13 @@ def build_card(articles: list[dict], session: str) -> dict:
             if len(title_text) > 45:
                 title_text = title_text[:45] + "..."
             teaser = art.get("summary", "")
+            novelty = art.get("novelty", "")
+            novelty_str = f" {novelty}" if novelty else ""
             teaser_line = f"  {teaser}" if teaser else ""
             elements.append({
                 "tag": "markdown",
                 "content": (
-                    f"{i}. [{title_text}]({art['url']})\n"
+                    f"{i}. [{title_text}]({art['url']}){novelty_str}\n"
                     f"  热度 {art['heat_display']}{teaser_line}"
                 )
             })
