@@ -12,6 +12,7 @@ from fetcher_toutiao import fetch_toutiao
 from filter_articles import filter_and_pick
 from feishu_sender import send_card, send_error_notification
 from feishu_bitable import archive_to_bitable
+from fetcher_summary import batch_generate_teasers
 
 REQUIRED_ENV = {
     "FEISHU_WEBHOOK_URL": FEISHU_WEBHOOK_URL,
@@ -63,6 +64,10 @@ def main():
     # 筛选精选 + 全量
     picked, all_articles = filter_and_pick(tophub_articles, toutiao_articles)
     print(f"  精选: {len(picked)} 条, 全量归档: {len(all_articles)} 条")
+
+    # 生成亮点标签
+    batch_generate_teasers(picked)
+    batch_generate_teasers(all_articles)
 
     # 通道 1：推送卡片到飞书群
     if picked:
