@@ -1,13 +1,20 @@
 from difflib import SequenceMatcher
 from config import (
-    TOPHUB_HEAT_THRESHOLD,
-    TOUTIAO_HEAT_THRESHOLD,
     RANK_RANGE_START,
     RANK_RANGE_END,
     PICK_COUNT,
     DEDUP_THRESHOLD,
 )
 from quality_filter import score_quality
+
+# 各来源的最低热度阈值
+HEAT_THRESHOLD = {
+    "公众号": 2000,
+    "头条": 5000,
+    "知乎": 7000,
+    "36氪": 7000,
+    "微博": 5000,
+}
 
 
 def _title_similarity(a: str, b: str) -> float:
@@ -73,7 +80,7 @@ def filter_and_pick(tophub_articles: list[dict], toutiao_articles: list[dict]) -
     返回 (精选列表, 全量归档列表)
     """
     def _filter(art):
-        threshold = TOPHUB_HEAT_THRESHOLD if art["source"] == "公众号" else TOUTIAO_HEAT_THRESHOLD
+        threshold = HEAT_THRESHOLD.get(art["source"], 2000)
         return (
             art["heat_score"] >= threshold
             and RANK_RANGE_START <= art["rank"] <= RANK_RANGE_END
@@ -101,7 +108,27 @@ def filter_and_pick(tophub_articles: list[dict], toutiao_articles: list[dict]) -
 
     all_candidates = _normalize_and_score(all_candidates)
     all_candidates.sort(key=lambda a: a["score"], reverse=True)
-    picked = all_candidates[:PICK_COUNT]
+
+    # 精选：每源最多 PICK_COUNT//3 条，保证多样性
+    max_per_source = max(2, PICK_COUNT // 3)
+    source_counts = {}
+    picked = []
+    for art in all_candidates:
+        src = art["source"]
+        count = source_counts.get(src, 0)
+        if count < max_per_source:
+            picked.append(art)
+            source_counts[src] = count + 1
+        if len(picked) >= PICK_COUNT:
+            break
+
+    # 如果不够 PICK_COUNT，不限来源补足
+    if len(picked) < PICK_COUNT:
+        for art in all_candidates:
+            if art not in picked:
+                picked.append(art)
+            if len(picked) >= PICK_COUNT:
+                break
 
     for art in picked:
         art["is_picked"] = True
