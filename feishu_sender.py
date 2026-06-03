@@ -54,12 +54,14 @@ def build_card(articles: list[dict], session: str) -> dict:
             teaser = art.get("summary", "")
             novelty = art.get("novelty", "")
             novelty_str = f" {novelty}" if novelty else ""
+            reason = art.get("viral_reason", "")
+            reason_line = f"\n  💡 {reason}" if reason else ""
             teaser_line = f"  {teaser}" if teaser else ""
             elements.append({
                 "tag": "markdown",
                 "content": (
                     f"{i}. [{title_text}]({art['url']}){novelty_str}\n"
-                    f"  热度 {art['heat_display']}{teaser_line}"
+                    f"  热度 {art['heat_display']}{reason_line}{teaser_line}"
                 )
             })
 
