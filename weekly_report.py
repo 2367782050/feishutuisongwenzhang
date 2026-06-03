@@ -76,24 +76,29 @@ def _aggregate(records: list[dict]) -> dict:
     }
 
     for r in records:
-        cat = r.get("分类", "其他")
+        cat = str(r.get("分类", "其他"))
         stats["categories"][cat] += 1
 
         if r.get("是否精选"):
             stats["picked"] += 1
 
-        novelty = r.get("亮点标签", "")
-        if "新面孔" in str(novelty):
+        novelty = str(r.get("亮点标签", ""))
+        if "新面孔" in novelty:
             stats["new_accounts"] += 1
 
-        # 收集热门账号（有账号ID的）
-        aid = r.get("账号ID", "")
+        aid = str(r.get("账号ID", ""))
         if aid:
             stats["hot_accounts"][aid[:20]] += 1
 
     # Top 文章（按精选评分）
-    scored = [r for r in records if r.get("精选评分", 0) > 0]
-    scored.sort(key=lambda r: r.get("精选评分", 0), reverse=True)
+    def _score(r):
+        try:
+            return float(r.get("精选评分", 0))
+        except (ValueError, TypeError):
+            return 0.0
+
+    scored = [r for r in records if _score(r) > 0]
+    scored.sort(key=_score, reverse=True)
     stats["top_articles"] = scored[:10]
 
     return stats
@@ -180,11 +185,16 @@ def build_weekly_card(stats: dict, ai_summary: str) -> dict:
     if top_arts:
         top_lines = ["**🔥 本周最值得关注的 5 篇**"]
         for i, a in enumerate(top_arts, 1):
-            title = a.get("标题", "")
-            cat = a.get("分类", "")
-            novelty = a.get("亮点标签", "")
-            is_new = "🆕 " if "新面孔" in str(novelty) else ""
-            top_lines.append(f"{i}. {is_new}[{title[:40]}]({a.get('原文链接', {}).get('link', '')})  _{cat}_")
+            title = str(a.get("标题", ""))
+            cat = str(a.get("分类", ""))
+            novelty = str(a.get("亮点标签", ""))
+            link_raw = a.get("原文链接", "")
+            if isinstance(link_raw, dict):
+                link = link_raw.get("link", "")
+            else:
+                link = str(link_raw)
+            is_new = "🆕 " if "新面孔" in novelty else ""
+            top_lines.append(f"{i}. {is_new}[{title[:40]}]({link})  _{cat}_")
         elements.append({"tag": "markdown", "content": "\n".join(top_lines)})
         elements.append({"tag": "hr"})
 
